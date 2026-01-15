@@ -1,18 +1,11 @@
 name: macOS Build
 
 on:
-  push:
-    paths:
-      - '**.c'
-      - '**.h'
-      - '**/CMakeLists.txt'
-      - '.github/workflows/macos_build.yml'
-  pull_request:
-    paths:
-      - '**.c'
-      - '**.h'
-      - '**/CMakeLists.txt'
-      - '.github/workflows/macos_build.yml'
+  workflow_call:
+    inputs:
+      ring-version:
+        required: true
+        type: string
 
 jobs:
   build:
@@ -20,12 +13,12 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: macos-13
-            arch: amd64
-            name: macos-amd64
-          - os: macos-latest
-            arch: arm64
-            name: macos-arm64
+        - os: macos-15-intel
+          arch: amd64
+          name: macos-amd64
+        - os: macos-latest
+          arch: arm64
+          name: macos-arm64
 
     steps:
     - name: Checkout ring-dialog
@@ -36,8 +29,9 @@ jobs:
     - name: Clone Ring Language
       uses: actions/checkout@v4
       with:
-        repository: ring-lang/ring
+        repository: ringpackages/ringsrc
         path: ring
+        ref: ${{ inputs.ring-version }}
 
     - name: Build and Install Ring Language
       run: |
