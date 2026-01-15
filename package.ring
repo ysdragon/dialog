@@ -5,11 +5,11 @@ aPackageInfo = [
 	:developer = "ysdragon",
 	:email = "",
 	:license = "MIT License",
-	:version = "1.0.0",
-	:ringversion = "1.23",
+	:version = "1.0.2",
+	:ringversion = "1.25",
 	:versions = 	[
 		[
-			:version = "1.0.0",
+			:version = "1.0.2",
 			:branch = "master"
 		]
 	],
@@ -44,7 +44,10 @@ aPackageInfo = [
 	],
 	:linuxfiles = 	[
 		"lib/linux/amd64/libring_dialog.so",
-		"lib/linux/arm64/libring_dialog.so"
+		"lib/linux/arm64/libring_dialog.so",
+		"lib/linux/musl/amd64/libring_dialog.so",
+		"lib/linux/musl/arm64/libring_dialog.so"
+
 	],
 	:ubuntufiles = 	[
 
