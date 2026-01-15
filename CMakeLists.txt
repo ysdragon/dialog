@@ -4,19 +4,39 @@ project(RingDialog LANGUAGES C)
 include(FetchContent)
 find_package(Git QUIET)
 
-# Get the Ring source directory from environment or use default
-if(NOT DEFINED ENV{RING})
-	set(RING "${CMAKE_CURRENT_SOURCE_DIR}/../..")
-	message(STATUS "RING not defined, using default: ${RING}")
-else()
-	set(RING $ENV{RING})
-	message(STATUS "Using RING from environment: ${RING}")
+set(RING_ROOT_DEFAULT "${CMAKE_CURRENT_SOURCE_DIR}/../..")
+if(DEFINED ENV{RING})
+    set(RING_ROOT_DEFAULT "$ENV{RING}")
+endif()
+set(RING_ROOT "${RING_ROOT_DEFAULT}" CACHE PATH "Path to the Ring project root directory.")
+message(STATUS "Using Ring from: ${RING_ROOT}")
+
+if(NOT TARGET Ring::Ring)
+    add_library(Ring::Ring UNKNOWN IMPORTED)
+    find_path(RING_INCLUDE_DIR ring.h PATHS "${RING_ROOT}/language/include")
+
+    # On Windows, Ring uses ringstatic.lib
+    if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+        find_library(RING_LIBRARY_PATH NAMES ringstatic PATHS "${RING_ROOT}/lib")
+    else()
+        find_library(RING_LIBRARY_PATH NAMES ring PATHS "${RING_ROOT}/lib")
+    endif()
+
+    if(NOT RING_INCLUDE_DIR OR NOT RING_LIBRARY_PATH)
+        message(FATAL_ERROR "Could not find Ring headers or library in ${RING_ROOT}. "
+                            "Please set the RING_ROOT cache variable correctly.")
+    endif()
+
+    set_target_properties(Ring::Ring PROPERTIES
+        IMPORTED_LOCATION "${RING_LIBRARY_PATH}"
+        INTERFACE_INCLUDE_DIRECTORIES "${RING_INCLUDE_DIR}"
+    )
 endif()
 
 # Set paths
-set(RING_INCLUDE "${RING}/language/include")
-set(RING_LIB "${RING}/lib")
-set(RING_BIN "${RING}/bin")
+set(RING_INCLUDE "${RING_ROOT}/language/include")
+set(RING_LIB "${RING_ROOT}/lib")
+set(RING_BIN "${RING_ROOT}/bin")
 
 # Add osdialog, fetching from GitHub if not present
 if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/osdialog/osdialog.h")
@@ -102,8 +122,30 @@ if(NOT DEFINED ARCH_DIR)
     endif()
 endif()
 
+# Detect musl libc
+option(MUSL "Build for musl libc" OFF)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    # Auto-detect musl if not explicitly set
+    if(NOT MUSL)
+        execute_process(
+            COMMAND ldd --version
+            OUTPUT_VARIABLE LDD_OUTPUT
+            ERROR_VARIABLE LDD_OUTPUT
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+        )
+        if(LDD_OUTPUT MATCHES "musl")
+            set(MUSL ON)
+            message(STATUS "Detected musl libc")
+        endif()
+    endif()
+endif()
+
 # Set the destination directory for the built library
-set(LIB_DEST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/lib/${OS_DIR}/${ARCH_DIR}")
+if(MUSL AND OS_DIR STREQUAL "linux")
+    set(LIB_DEST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/lib/${OS_DIR}/musl/${ARCH_DIR}")
+else()
+    set(LIB_DEST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/lib/${OS_DIR}/${ARCH_DIR}")
+endif()
 
 
 # Linux backend configuration
@@ -120,10 +162,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" OR CMAKE_SYSTEM_NAME STREQUAL "FreeBSD")
         if (GTK4_FOUND)
             message(STATUS "Found GTK4, using osdialog_gtk.")
             list(APPEND RING_DIALOG_C_SOURCES "${OSDIALOG_SRC_DIR}/osdialog_gtk.c")
-            target_compile_definitions(ring_dialog PRIVATE ${GTK4_DEFINITIONS})
-            target_include_directories(ring_dialog PRIVATE ${GTK4_INCLUDE_DIRS})
-            # We will link this later
-            target_compile_definitions(ring_dialog PRIVATE OSDIALOG_GTK)
+            set(USE_GTK4 TRUE)
         else()
             message(FATAL_ERROR "Neither Zenity nor GTK4 found. Please install one of them.")
         endif()
@@ -135,28 +174,23 @@ add_library(ring_dialog SHARED
 	${RING_DIALOG_C_SOURCES}
 )
 
-# Include directories
+# Include directories (Ring::Ring provides its own via INTERFACE_INCLUDE_DIRECTORIES)
 target_include_directories(ring_dialog PRIVATE
-	${RING_INCLUDE}
 	${OSDIALOG_INCLUDE_DIR}
 )
 
-# Determine Ring library based on OS
-if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
-	set(RING_LIB_NAME "${RING_LIB}/ringstatic.lib")
-else()
-	set(RING_LIB_NAME "${RING_LIB}/libring${CMAKE_SHARED_LIBRARY_SUFFIX}")
+# Link Ring library via imported target
+target_link_libraries(ring_dialog PRIVATE Ring::Ring)
+
+# GTK4 configuration (must be after add_library)
+if(USE_GTK4)
+    target_compile_definitions(ring_dialog PRIVATE ${GTK4_DEFINITIONS} OSDIALOG_GTK)
+    target_include_directories(ring_dialog PRIVATE ${GTK4_INCLUDE_DIRS})
+    target_link_libraries(ring_dialog PRIVATE ${GTK4_LIBRARIES})
 endif()
 
-# Link libraries
-target_link_libraries(ring_dialog PRIVATE
-    ${RING_LIB_NAME}
-)
-
-# OS-specific linking
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND GTK4_FOUND)
-    target_link_libraries(ring_dialog PRIVATE ${GTK4_LIBRARIES})
-elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+# macOS framework linking
+if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
     target_link_libraries(ring_dialog PRIVATE "-framework AppKit")
 endif()
 
